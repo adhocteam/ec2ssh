@@ -19,10 +19,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/awserr"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
 
 func usage() {
@@ -31,8 +31,6 @@ func usage() {
 Options:
   -v	        be verbose (passes -v to underlying SSH invocation)
   -p	        path to SSH key files
-  -P, --profile	AWS profile to be used for the session (optional)
-  -r, --region  AWS region to target when creating an AWS session (optional)
   -l, --list    list running and pending AWS instances
   -c, --command run a command on the remote server
 `, filepath.Base(os.Args[0]))
@@ -43,8 +41,6 @@ var verboseFlag bool
 var remoteCommand string
 var listInstances bool
 var kp string
-var profile string
-var region string
 
 var instIdRe = regexp.MustCompile(`i-[0-9a-fA-F]{8,17}$`)
 
@@ -89,7 +85,7 @@ func printError(err error) {
 	os.Exit(1)
 }
 
-func reservationsToInstances(reservations []*ec2.Reservation) []*Instance {
+func reservationsToInstances(reservations []ec2.RunInstancesOutput) []*Instance {
 	var instances []*Instance
 	for _, reservation := range reservations {
 		for _, instance := range reservation.Instances {
@@ -143,23 +139,6 @@ func init() {
 	flag.StringVar(&kp, "p", p, "path to directory with SSH keys, default is $HOME/.ssh")
 	flag.BoolVar(&verboseFlag, "v", false, "be verbose")
 
-	const (
-		defaultProfile = "default"
-		profileDesc    = "the named profile to use when creating a new AWS session"
-	)
-	flag.StringVar(&profile, "P", defaultProfile, profileDesc)
-	flag.StringVar(&profile, "profile", defaultProfile, profileDesc)
-
-	const regionDesc = "the region to target when creating an AWS session"
-
-	defaultRegion := os.Getenv("AWS_DEFAULT_REGION")
-	if defaultRegion == "" {
-		defaultRegion = "us-east-1"
-	}
-
-	flag.StringVar(&region, "r", defaultRegion, regionDesc)
-	flag.StringVar(&region, "region", defaultRegion, regionDesc)
-
 	flag.BoolVar(&listInstances, "l", false, "show list of running instances and exit")
 	flag.BoolVar(&listInstances, "list", false, "show list of running instances and exit")
 
@@ -169,11 +148,11 @@ func init() {
 
 // Given an instance name and Id, and a reservation list, return the ec2.Instance
 // that matches
-func findInstance(instance *Instance, reservations []*ec2.Reservation) (*ec2.Instance, error) {
+func findInstance(instance *Instance, reservations []ec2.RunInstancesOutput) (*ec2.Instance, error) {
 	for _, reservation := range reservations {
 		for _, ec2Instance := range reservation.Instances {
 			if *ec2Instance.InstanceId == instance.Id {
-				return ec2Instance, nil
+				return &ec2Instance, nil
 			}
 		}
 	}
@@ -183,7 +162,7 @@ func findInstance(instance *Instance, reservations []*ec2.Reservation) (*ec2.Ins
 // Accepts the user's query and a slice of reservations that match the query.
 // Shows the user the instance IDs and allows them to choose one on the command
 // line, and returns a pointer to the instance that was chosen
-func chooseInstance(lookup string, reservations []*ec2.Reservation) *ec2.Instance {
+func chooseInstance(lookup string, reservations []ec2.RunInstancesOutput) *ec2.Instance {
 	var instanceList = reservationsToInstances(reservations)
 
 	fmt.Printf(`Found more than one instance for '%s'.
@@ -230,26 +209,18 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	debugf("using AWS profile: %s", profile)
-	sess, err := session.NewSessionWithOptions(session.Options{
-		Config: aws.Config{
-			Region: aws.String(region),
-			CredentialsChainVerboseErrors: &verboseFlag,
-		},
-		Profile:           profile,
-		SharedConfigState: session.SharedConfigEnable,
-	})
+	cfg, err := external.LoadDefaultAWSConfig()
 	if err != nil {
 		printError(err)
 	}
 
-	svc := ec2.New(sess)
+	svc := ec2.New(cfg)
 
 	var instanceStateFilter = ec2.Filter{
 		Name: aws.String("instance-state-name"),
-		Values: []*string{
-			aws.String("running"),
-			aws.String("pending"),
+		Values: []string{
+			"running",
+			"pending",
 		},
 	}
 
@@ -259,12 +230,13 @@ func main() {
 			var params *ec2.DescribeInstancesInput
 
 			params = &ec2.DescribeInstancesInput{
-				Filters: []*ec2.Filter{
-					&instanceStateFilter,
+				Filters: []ec2.Filter{
+					instanceStateFilter,
 				},
 			}
 
-			resp, err := svc.DescribeInstances(params)
+			req := svc.DescribeInstancesRequest(params)
+			resp, err := req.Send()
 			if err != nil {
 				printError(err)
 			}
@@ -280,41 +252,40 @@ func main() {
 	var params *ec2.DescribeInstancesInput
 	if ip := net.ParseIP(lookup); ip != nil {
 		params = &ec2.DescribeInstancesInput{
-			Filters: []*ec2.Filter{
+			Filters: []ec2.Filter{
 				{
 					Name: aws.String("private-ip-address"),
-					Values: []*string{
-						aws.String(lookup),
+					Values: []string{
+						lookup,
 					},
 				},
-				&instanceStateFilter,
+				instanceStateFilter,
 			},
 		}
 	} else if instIdRe.MatchString(lookup) {
 		debugf("describing instance(s) by ID")
 		params = &ec2.DescribeInstancesInput{
-			InstanceIds: []*string{aws.String(lookup)},
-			Filters: []*ec2.Filter{
-				&instanceStateFilter,
+			InstanceIds: []string{lookup},
+			Filters: []ec2.Filter{
+				instanceStateFilter,
 			},
 		}
 	} else {
 		debugf("describing instance(s) by name")
 		params = &ec2.DescribeInstancesInput{
-			Filters: []*ec2.Filter{
+			Filters: []ec2.Filter{
 				{
-					Name: aws.String("tag:Name"),
-					Values: []*string{
-						aws.String(lookup),
-					},
+					Name:   aws.String("tag:Name"),
+					Values: []string{lookup},
 				},
-				&instanceStateFilter,
+				instanceStateFilter,
 			},
 		}
 	}
 
 	debugf("aws api: describing instances")
-	resp, err := svc.DescribeInstances(params)
+	req := svc.DescribeInstancesRequest(params)
+	resp, err := req.Send()
 	if err != nil {
 		printError(err)
 	}
@@ -325,7 +296,7 @@ func main() {
 	if len(resp.Reservations) == 0 {
 		printError(fmt.Errorf("Found no instance '%s'", lookup))
 	} else if len(resp.Reservations) == 1 {
-		instance = resp.Reservations[0].Instances[0]
+		instance = &resp.Reservations[0].Instances[0]
 	} else if len(resp.Reservations) > 1 {
 		instance = chooseInstance(lookup, resp.Reservations)
 	}

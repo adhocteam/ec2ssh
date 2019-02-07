@@ -33,13 +33,13 @@ $ ec2ssh 1.2.3.4
 Specify an AWS profile other than "default":
 
 ```
-$ ec2ssh --profile profilenamehere
+$ AWS_PROFILE=altprofile ec2ssh
 ```
 
 Specify an AWS region other than "us-east-1":
 
 ```
-$ ec2ssh --region us-west-2
+$ AWS_REGION=us-west-2 ec2ssh
 ```
 
 See a list of running/pending instance names and ids:
