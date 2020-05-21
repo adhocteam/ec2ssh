@@ -4,13 +4,13 @@ Go wrapper around SSH that speaks AWS API
 ## Installation
 
 ```
-$ go get github.com/adhocteam/ec2ssh
+$ GO111MODULE=on go get github.com/adhocteam/ec2ssh
 ```
 
 to upgrade your ec2ssh version, do:
 
 ```
-$ go get -u github.com/adhocteam/ec2ssh
+$ GO111MODULE=on go get -u github.com/adhocteam/ec2ssh
 ```
 
 ## Usage
@@ -58,3 +58,4 @@ $ ec2ssh -c 'echo bananas' <remote-server-name>
 
 - Assumes you have at least one AWS profile configured. See [AWS docs for details](http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html#cli-quick-configuration).
 - The tool assumes you keep all SSH keys in `$HOME/.ssh/`, and match the key name assigned to the EC2 instance. Use `-p` or `AWS_KEY_DIR` to specify an alternate path to your private keys.
+- The `GO111MODULE=on` bit is due to some clunky behavior in go, you can follow [this ticket](https://github.com/golang/go/issues/30515) to see when it gets fixed
