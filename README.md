@@ -3,15 +3,9 @@ Go wrapper around SSH that speaks AWS API
 
 ## Installation
 
-```
-$ GO111MODULE=on go get github.com/adhocteam/ec2ssh
-```
+Clone this repository and run `go install`
 
-to upgrade your ec2ssh version, do:
-
-```
-$ GO111MODULE=on go get -u github.com/adhocteam/ec2ssh
-```
+Installation via `go get` is not currently supported; see [#3](https://github.com/adhocteam/ec2ssh/issues/3) for details
 
 ## Usage
 
