@@ -5,6 +5,8 @@ Go wrapper around SSH that speaks AWS API
 
 Clone this repository and run `go install`
 
+If this is the first Go binary you're installing on your machine you'll probably need to add the folder to your PATH, like `export PATH=$PATH:$HOME/go/bin`
+
 Installation via `go get` is not currently supported; see [#3](https://github.com/adhocteam/ec2ssh/issues/3) for details
 
 ## Usage
